@@ -33,16 +33,86 @@ abstract class DBBase {
 	protected $logger = null; // fn(string $msg, string $title='')
 	/** @var callable|null */
 	protected static $defaultLogger = null;
+	/** @var array|null */
+	protected static $defaultConfig = null;
 
 	public function __construct($pdo = null, $logger = null) {
 		$this->conn = $pdo ?: self::$defaultConn;
 		$this->logger = $logger ?: self::$defaultLogger;
 	}
+	
 	public function setConnection(PDO $pdo) { $this->conn = $pdo; }
 	public function getConnection() { return $this->conn; }
 	public static function setDefaultConnection(PDO $pdo) { self::$defaultConn = $pdo; }
 	public static function getDefaultConnection() { return self::$defaultConn; }
 	public static function setDefaultLogger($logger) { self::$defaultLogger = $logger; }
+	
+	/**
+	 * Configure database connection parameters
+	 * @param array $config Configuration array with keys: host, dbname, username, password, port?, socket?, charset?
+	 */
+	public static function setDefaultConfig(array $config) {
+		self::$defaultConfig = $config;
+	}
+	
+	/**
+	 * Create a PDO connection from configuration
+	 * @param array|null $config Configuration override, uses default if null
+	 * @return PDO
+	 * @throws Exception
+	 */
+	public static function createConnection(array $config = null): PDO {
+		$config = $config ?: self::$defaultConfig;
+		if (!$config) {
+			throw new Exception('No database configuration provided');
+		}
+		
+		$host = $config['host'] ?? 'localhost';
+		$dbname = $config['dbname'] ?? '';
+		$username = $config['username'] ?? '';
+		$password = $config['password'] ?? '';
+		$port = $config['port'] ?? null;
+		$socket = $config['socket'] ?? null;
+		$charset = $config['charset'] ?? 'utf8mb4';
+		
+		if (!$dbname) {
+			throw new Exception('Database name is required');
+		}
+		
+		$dsn = "mysql:dbname={$dbname};charset={$charset}";
+		
+		if ($socket) {
+			$dsn = "mysql:unix_socket={$socket};dbname={$dbname};charset={$charset}";
+		} else {
+			$dsn = "mysql:host={$host};dbname={$dbname};charset={$charset}";
+			if ($port) {
+				$dsn = "mysql:host={$host};port={$port};dbname={$dbname};charset={$charset}";
+			}
+		}
+		
+		$options = [
+			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+			PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+			PDO::ATTR_EMULATE_PREPARES => false,
+		];
+		
+		try {
+			return new PDO($dsn, $username, $password, $options);
+		} catch (PDOException $e) {
+			throw new Exception('Database connection failed: ' . $e->getMessage());
+		}
+	}
+	
+	/**
+	 * Initialize default connection from configuration
+	 * @param array|null $config Configuration override, uses default if null
+	 * @return PDO
+	 */
+	public static function initializeDefaultConnection(array $config = null): PDO {
+		$pdo = self::createConnection($config);
+		self::setDefaultConnection($pdo);
+		return $pdo;
+	}
 
 	public function getFieldNames() { return []; }
 	public function getClassName() {
@@ -66,8 +136,15 @@ abstract class DBBase {
 
 	protected function ensureConn() {
 		if(!$this->conn) {
-			if (self::$defaultConn) { $this->conn = self::$defaultConn; }
-			else { throw new RuntimeException('No PDO connection set'); }
+			if (self::$defaultConn) { 
+				$this->conn = self::$defaultConn; 
+			} elseif (self::$defaultConfig) {
+				// Auto-initialize connection from config when first needed
+				self::$defaultConn = self::createConnection(self::$defaultConfig);
+				$this->conn = self::$defaultConn;
+			} else { 
+				throw new RuntimeException('No PDO connection set and no configuration provided'); 
+			}
 		}
 	}
 
