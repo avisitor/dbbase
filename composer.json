@@ -1,19 +1,13 @@
 {
-  "name": "retree/dbbase",
-  "description": "Lightweight generic DB base class (PDO) extracted from retreehawaii",
-  "type": "library",
-  "license": "MIT",
-  "autoload": {
-    "psr-4": {
-      "Common\\DB\\": "src/"
+    "name": "retree/dbbase",
+    "description": "Database base class utilities for Retree Hawaii",
+    "type": "library",
+    "autoload": {
+        "psr-4": {
+            "Common\\DB\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=7.4"
     }
-  },
-  "require": {
-    "php": ">=8.0"
-  },
-  "extra": {
-    "branch-alias": {
-      "dev-main": "1.0.x-dev"
-    }
-  }
 }
