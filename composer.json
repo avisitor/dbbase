@@ -1,6 +1,6 @@
 {
-    "name": "retree/dbbase",
-    "description": "Database base class utilities for Retree Hawaii",
+    "name": "avisitor/dbbase",
+    "description": "Database base class utilities",
     "type": "library",
     "autoload": {
         "psr-4": {
