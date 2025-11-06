@@ -149,6 +149,7 @@ abstract class DBBase {
 	}
 
 	protected function executeStatement($sql, $values=null) {
+		$this->log($sql . ', ' . var_export($values, true));
 		$this->ensureConn();
 		try {
 			$stmt = $this->conn->prepare($sql);
@@ -230,14 +231,14 @@ abstract class DBBase {
 			$answers[$idName]=$id;
 		}
 		$this->executeStatement($sql,$answers);
-		return 0;
+		return $answers;
 	}
 	public function insertOneDBRecord($potential, $params, $table, $prefix='id', $idName='id') {
 		$answers=array_intersect_key($params,array_flip($potential));
 		if(count($answers)<1) return $answers;
 		$id=$answers[$idName]??uniqidReal($prefix); $answers[$idName]=$params[$idName]=$id;
 		$keys=implode(',',array_keys($answers)); $vals=':'.implode(',:',array_keys($answers));
-		$sql="replace into $table ($keys) values ($vals)"; $this->executeStatement($sql,$answers); return 0;
+		$sql="replace into $table ($keys) values ($vals)"; $this->executeStatement($sql,$answers); return $params;
 	}
 
 	// Common getters
