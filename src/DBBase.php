@@ -8,19 +8,6 @@ use Exception;
 use RuntimeException;
 use Throwable;
 
-if (!function_exists(__NAMESPACE__.'\\uniqidReal')) {
-	function uniqidReal($prefix = '', $len = 13) {
-		if (function_exists('random_bytes')) {
-			$bytes = random_bytes(ceil($len / 2));
-		} elseif (function_exists('openssl_random_pseudo_bytes')) {
-			$bytes = openssl_random_pseudo_bytes(ceil($len / 2));
-		} else {
-			throw new Exception('no cryptographically secure random function available');
-		}
-		return $prefix . substr(bin2hex($bytes), 0, $len);
-	}
-}
-
 abstract class DBBase {
 	protected $table = '';
 	protected $prefix = '';
@@ -55,6 +42,17 @@ abstract class DBBase {
 		self::$defaultConfig = $config;
 	}
 	
+	public function uniqidReal($prefix = '', $len = 13) {
+		if (function_exists('random_bytes')) {
+			$bytes = random_bytes(ceil($len / 2));
+		} elseif (function_exists('openssl_random_pseudo_bytes')) {
+			$bytes = openssl_random_pseudo_bytes(ceil($len / 2));
+		} else {
+			throw new Exception('no cryptographically secure random function available');
+		}
+		return $prefix . substr(bin2hex($bytes), 0, $len);
+	}
+
 	/**
 	 * Create a PDO connection from configuration
 	 * @param array|null $config Configuration override, uses default if null
@@ -148,8 +146,7 @@ abstract class DBBase {
 		}
 	}
 
-	protected function executeStatement($sql, $values=null) {
-		$this->log($sql . ', ' . var_export($values, true));
+	public function executeStatement($sql, $values=null) {
 		$this->ensureConn();
 		try {
 			$stmt = $this->conn->prepare($sql);
@@ -216,29 +213,51 @@ abstract class DBBase {
 
 	// CRUD helpers
 	public function updateOneDBRecord($potential, $params, $table, $prefix='', $idName='id', $criteria='') {
-		$answers=[]; foreach($potential as $k){ if(array_key_exists($k,$params)) $answers[$k]=$params[$k]; }
-		if(count($answers)<1) return $answers;
-		$id = $params[$idName] ?? '';
-		if(!$id){
-			if($prefix){ $id=uniqidReal($prefix); $params[$idName]=$id; $answers[$idName]=$id; }
-			$keys=implode(',',array_keys($answers));
-			$vals=':'.implode(',:',array_keys($answers));
-			$sql="replace into $table ($keys) values ($vals)";
-		} else {
-			$updates=[]; foreach(array_keys($answers) as $k){ if($k!==$idName) $updates[]="$k=:$k"; }
-			if(!$criteria) $criteria="$idName=:$idName";
-			$sql="update $table set ".implode(',', $updates)." where $criteria";
-			$answers[$idName]=$id;
-		}
-		$this->executeStatement($sql,$answers);
-		return $answers;
-	}
+        $answers = [];
+        foreach($potential as $k) {
+            if(array_key_exists($k, $params)) $answers[$k] = $params[$k];
+        }
+        if(count($answers) < 1) return $answers;
+        
+        $id = $params[$idName] ?? '';
+        if(!$id) {
+            if($prefix) {
+                $id = $this->uniqidReal($prefix);
+                $params[$idName] = $id;
+                $answers[$idName] = $id;
+            }
+            $keys = implode(',', array_keys($answers));
+            $vals = ':' . implode(',:', array_keys($answers));
+            $sql = "replace into $table ($keys) values ($vals)";
+        } else {
+            $updates = [];
+            foreach(array_keys($answers) as $k) {
+                if($k !== $idName) $updates[] = "$k=:$k";
+            }
+            if(!$criteria) $criteria = "$idName=:$idName";
+            $sql = "update $table set " . implode(',', $updates) . " where $criteria";
+            $answers[$idName] = $id;
+        }
+        
+        $this->executeStatement($sql, $answers);
+        return $answers; // Return answers like original db.php
+    }
+
 	public function insertOneDBRecord($potential, $params, $table, $prefix='id', $idName='id') {
-		$answers=array_intersect_key($params,array_flip($potential));
-		if(count($answers)<1) return $answers;
-		$id=$answers[$idName]??uniqidReal($prefix); $answers[$idName]=$params[$idName]=$id;
-		$keys=implode(',',array_keys($answers)); $vals=':'.implode(',:',array_keys($answers));
-		$sql="replace into $table ($keys) values ($vals)"; $this->executeStatement($sql,$answers); return $params;
+        $answers = array_intersect_key($params, array_flip($potential));
+        if(count($answers) < 1) {
+            return $answers;
+        }
+        
+        $id = $answers[$idName] ?? $this->uniqidReal($prefix);
+        $answers[$idName] = $params[$idName] = $id;
+        
+        $keys = implode(',', array_keys($answers));
+        $vals = ':' . implode(',:', array_keys($answers));
+        $sql = "replace into $table ($keys) values ($vals)";
+        
+        $this->executeStatement($sql, $answers);
+        return $params; // Return full params like original db.php
 	}
 
 	// Common getters
@@ -298,5 +317,14 @@ abstract class DBBase {
 		}
 		return $results;
 	}
+
+    // Small helper used by scripts/tests; keeps legacy behavior
+    public function getSomeIDs($count) {
+        $count = (int)$count;
+        if ($count <= 0) return [];
+        $sql = "select {$this->idName} from {$this->table} limit $count";
+        $records = $this->query($sql);
+        return array_column($records, $this->idName);
+    }
 }
 
