@@ -28,11 +28,21 @@ abstract class DBBase {
 		$this->logger = $logger ?: self::$defaultLogger;
 	}
 	
-	public function setConnection(PDO $pdo) { $this->conn = $pdo; }
-	public function getConnection() { return $this->conn; }
-	public static function setDefaultConnection(PDO $pdo) { self::$defaultConn = $pdo; }
-	public static function getDefaultConnection() { return self::$defaultConn; }
-	public static function setDefaultLogger($logger) { self::$defaultLogger = $logger; }
+	public function setConnection(PDO $pdo) {
+        $this->conn = $pdo;
+    }
+	public function getConnection() {
+        return $this->conn;
+    }
+	public static function setDefaultConnection(PDO $pdo) {
+        self::$defaultConn = $pdo;
+    }
+	public static function getDefaultConnection() {
+        return self::$defaultConn;
+    }
+	public static function setDefaultLogger($logger) {
+        self::$defaultLogger = $logger;
+    }
 	
 	/**
 	 * Configure database connection parameters
@@ -64,28 +74,23 @@ abstract class DBBase {
 		if (!$config) {
 			throw new Exception('No database configuration provided');
 		}
-		
-		$host = $config['host'] ?? 'localhost';
-		$dbname = $config['dbname'] ?? '';
-		$username = $config['username'] ?? '';
-		$password = $config['password'] ?? '';
-		$port = $config['port'] ?? null;
+
+        $required = [ 'host', 'dbname', 'username', 'password', 'port' ];
+        foreach( $required as $key ) {
+            if( !isset( $config[$key] ) || !$config[$key] ) {
+			    throw new Exception("DB config key $key is required by DBBase, normally passed in the environment");
+            }
+		}
+        
 		$socket = $config['socket'] ?? null;
 		$charset = $config['charset'] ?? 'utf8mb4';
 		
-		if (!$dbname) {
-			throw new Exception('Database name is required');
-		}
-		
-		$dsn = "mysql:dbname={$dbname};charset={$charset}";
+		$dsn = "mysql:dbname={$config['dbname']};charset={$charset}";
 		
 		if ($socket) {
-			$dsn = "mysql:unix_socket={$socket};dbname={$dbname};charset={$charset}";
+			$dsn = "mysql:unix_socket={$socket};dbname={$config['dbname']};charset={$charset}";
 		} else {
-			$dsn = "mysql:host={$host};dbname={$dbname};charset={$charset}";
-			if ($port) {
-				$dsn = "mysql:host={$host};port={$port};dbname={$dbname};charset={$charset}";
-			}
+			$dsn = "mysql:host={$config['host']};port={$config['port']};dbname={$config['dbname']};charset={$charset}";
 		}
 		
 		$options = [
@@ -95,7 +100,7 @@ abstract class DBBase {
 		];
 		
 		try {
-			return new PDO($dsn, $username, $password, $options);
+			return new PDO($dsn, $config['username'], $config['password'], $options);
 		} catch (PDOException $e) {
 			throw new Exception('Database connection failed: ' . $e->getMessage());
 		}
@@ -112,24 +117,74 @@ abstract class DBBase {
 		return $pdo;
 	}
 
-	public function getFieldNames() { return []; }
+	public function getFieldNames() {
+        return [];
+    }
+    
 	public function getClassName() {
-		if(!$this->className){ $this->className = preg_replace('/^DB/','',(new ReflectionClass($this))->getShortName()); }
+		if(!$this->className) {
+            $this->className = preg_replace('/^DB/','', (new ReflectionClass($this))->getShortName());
+        }
 		return $this->className;
 	}
-	public function getIDName() { return $this->idName; }
-	public function getModuleName() { return $this->moduleName; }
-	protected function log($message, $title='') {
-		if ($this->logger) { ($this->logger)($message, $title); }
-	}
+    
+	public function getIDName() {
+        return $this->idName;
+    }
+    
+	public function getModuleName() {
+        return $this->moduleName;
+    }
+    
+    protected function get_caller_info() {
+        $c = '';
+        $file = '';
+        $func = '';
+        $class = '';
+        $trace = debug_backtrace();
+        if (isset($trace[2])) {
+            $file = $trace[1]['file'];
+            $func = $trace[2]['function'];
+            if ((substr($func, 0, 7) == 'include') || (substr($func, 0, 7) == 'require')) {
+                $func = '';
+            }
+        } else if (isset($trace[1])) {
+            $file = $trace[1]['file'];
+            $func = '';
+        }
+        if (isset($trace[3]['class'])) {
+            $class = $trace[3]['class'];
+            $func = $trace[3]['function'];
+            $file = $trace[2]['file'];
+        } else if (isset($trace[2]['class'])) {
+            $class = $trace[2]['class'];
+            $func = $trace[2]['function'];
+            $file = $trace[1]['file'];
+        }
+        if ($file != '') $file = basename($file);
+        $c = $file . ": ";
+        $c .= ($class != '') ? ":" . $class . "->" : "";
+        $c .= ($func != '') ? $func . "(): " : "";
+        return($c);
+    }
 
-	// Optional convenience logger compatible with legacy debuglog()
-	public function debuglog($message, $title = '') {
-		if (function_exists('debuglog')) {
-			debuglog($message, $title);
-		} else {
-			$this->log(is_string($message) ? $message : var_export($message, true), $title);
-		}
+    public function debuglog( $msg, $prefix="" ) {
+        if( is_object( $msg ) || is_array( $msg ) ) {
+            $msg = var_export( $msg, true );
+        }
+        if( $prefix ) {
+            $msg = "$prefix: $msg";
+        }
+        error_log( $_SERVER['SCRIPT_NAME'] . ": " . $this->get_caller_info() . ": $msg" );
+    }
+    
+	public function log($message, $title='', $level=0) {
+		if ($this->logger) {
+            $message = is_string($message) ? $message : var_export($message, true);
+            ($this->logger)($message, $title);
+        } else {
+			$this->debuglog($message, $title);
+        }
 	}
 
 	protected function ensureConn() {
@@ -150,7 +205,11 @@ abstract class DBBase {
 		$this->ensureConn();
 		try {
 			$stmt = $this->conn->prepare($sql);
-			if($values) $stmt->execute($values); else $stmt->execute();
+			if($values) {
+                $stmt->execute($values);
+            } else {
+                $stmt->execute();
+            }
 			return $stmt;
 		} catch (PDOException $e) {
 			$this->log($e->getMessage(), 'error');
@@ -160,14 +219,16 @@ abstract class DBBase {
 
 	public function query($sql, $values=null) {
 		$stmt = $this->executeStatement($sql,$values);
-		if(!$stmt) return [];
+		if( !$stmt ) {
+            return [];
+        }
 		$stmt->setFetchMode(PDO::FETCH_ASSOC);
 		return $stmt->fetchAll() ?: [];
 	}
 
 	public function execute($sql, $values=null) {
 		$stmt = $this->executeStatement($sql,$values);
-		return $stmt?0:1;
+		return $stmt ? 0 : 1;
 	}
 
 	// --- Convenience helpers preserved from legacy DBBase ---
@@ -175,103 +236,142 @@ abstract class DBBase {
 		$rows = $this->query($sql, $values);
 		return ($rows && isset($rows[0])) ? $rows[0] : [];
 	}
+    
 	protected function firstValue($sql, $values = [], $key = null, $default = 0) {
 		$rows = $this->query($sql, $values);
-		if (!$rows || count($rows) === 0) return $default;
-		if ($key !== null) return isset($rows[0][$key]) ? $rows[0][$key] : $default;
-		foreach ($rows[0] as $k => $v) { return $v; }
+		if (!$rows || count($rows) === 0) {
+            return $default;
+        }
+		if ($key !== null) {
+            return isset($rows[0][$key]) ? $rows[0][$key] : $default;
+        }
+		foreach ($rows[0] as $k => $v) {
+            return $v;
+        }
 		return $default;
 	}
+    
 	protected function buildDateRangeClause($from = '', $to = '', $field = 'date', $fromParam = ':__from', $toParam = ':__to') {
 		$parts = []; $values = [];
-		if ($from) { $parts[] = $field . ' >= ' . $fromParam; $values[$fromParam] = $from; }
-		if ($to)   { $parts[] = $field . ' <= ' . $toParam;   $values[$toParam] = $to; }
+		if ($from) {
+            $parts[] = $field . ' >= ' . $fromParam; $values[$fromParam] = $from;
+        }
+		if ($to) {
+            $parts[] = $field . ' <= ' . $toParam;   $values[$toParam] = $to;
+        }
 		$clause = count($parts) ? (' where ' . implode(' and ', $parts)) : '';
 		return [$clause, $values];
 	}
+    
 	public function getAllByDateRange($from = '', $to = '', $dateField = 'date', $orderBy = '') {
 		list($where, $values) = $this->buildDateRangeClause($from, $to, $dateField);
-		$sql = "select * from {$this->table}{$where}"; if ($orderBy) { $sql .= " order by $orderBy"; }
+		$sql = "select * from {$this->table}{$where}";
+        if ($orderBy) {
+            $sql .= " order by $orderBy";
+        }
 		return $this->query($sql, $values);
 	}
+    
 	public function appendDateRangeToSql($sql, $from = '', $to = '', $dateField = 'date', $fromParam = ':__from', $toParam = ':__to') {
 		list($clause, $values) = $this->buildDateRangeClause($from, $to, $dateField, $fromParam, $toParam);
-		if (!$clause) return [$sql, []];
+		if (!$clause) {
+            return [$sql, []];
+        }
 		$hasWhere = stripos($sql, ' where ') !== false;
-		if ($hasWhere) { $clause = preg_replace('/^\s*where\s+/i', ' and ', $clause); return [$sql . $clause, $values]; }
+		if ($hasWhere) {
+            $clause = preg_replace('/^\s*where\s+/i', ' and ', $clause); return [$sql . $clause, $values];
+        }
 		return [$sql . $clause, $values];
 	}
+    
 	protected function buildInClause($field, $list, $paramBase = 'in') {
-		if (!is_array($list) || count($list) === 0) { return ['', []]; }
+		if (!is_array($list) || count($list) === 0) {
+            return ['', []];
+        }
 		$placeholders = []; $values = [];
-		foreach (array_values($list) as $i => $val) { $ph = ':' . $paramBase . $i; $placeholders[] = $ph; $values[$ph] = $val; }
+		foreach (array_values($list) as $i => $val) {
+            $ph = ':' . $paramBase . $i; $placeholders[] = $ph; $values[$ph] = $val;
+        }
 		$clause = $field . ' in (' . implode(',', $placeholders) . ')';
 		return [$clause, $values];
 	}
-	public function processRecord($record) { return $record; }
-	public function processRecords($records) { for($i=0;$i<count($records);$i++){ $records[$i]=$this->processRecord($records[$i]); } return $records; }
 
-	// CRUD helpers
-	public function updateOneDBRecord($potential, $params, $table, $prefix='', $idName='id', $criteria='') {
-        $answers = [];
-        foreach($potential as $k) {
-            if(array_key_exists($k, $params)) $answers[$k] = $params[$k];
+    // Sometimes overridden by derived classes
+	public function processRecord($record) {
+        return $record;
+    }
+    
+	public function processRecords($records) {
+        for($i = 0; $i < count($records); $i++) {
+            $records[$i] = $this->processRecord($records[$i]);
         }
-        if(count($answers) < 1) return $answers;
-        
-        $id = $params[$idName] ?? '';
-        if(!$id) {
-            if($prefix) {
-                $id = $this->uniqidReal($prefix);
-                $params[$idName] = $id;
-                $answers[$idName] = $id;
-            }
-            $keys = implode(',', array_keys($answers));
-            $vals = ':' . implode(',:', array_keys($answers));
-            $sql = "replace into $table ($keys) values ($vals)";
-        } else {
-            $updates = [];
-            foreach(array_keys($answers) as $k) {
-                if($k !== $idName) $updates[] = "$k=:$k";
-            }
-            if(!$criteria) $criteria = "$idName=:$idName";
-            $sql = "update $table set " . implode(',', $updates) . " where $criteria";
-            $answers[$idName] = $id;
-        }
-        
-        $this->executeStatement($sql, $answers);
-        return $answers; // Return answers like original db.php
+        return $records;
     }
 
-	public function insertOneDBRecord($potential, $params, $table, $prefix='id', $idName='id') {
-        $answers = array_intersect_key($params, array_flip($potential));
-        if(count($answers) < 1) {
-            return $answers;
+	// CRUD helpers
+    // upsert - inserts unless there is an existing primary key or unique value, in which case it updates
+	public function updateOneDBRecord($potential, $params, $table, $prefix='', $idName='id', $criteria='') {
+        // Filter $params down to only the keys in $potential
+        $answers = array_filter(
+            $params,
+            fn($k) => in_array($k, $potential, true),
+            ARRAY_FILTER_USE_KEY
+        );
+        if( !isset($params[$idname]) || !$params[$idname] ) {
+            // Generate an ID if necessary
+            $answers[$idname] = $params[$idname] = uniqidReal( $prefix );
         }
-        
-        $id = $answers[$idName] ?? $this->uniqidReal($prefix);
-        $answers[$idName] = $params[$idName] = $id;
-        
         $keys = implode(',', array_keys($answers));
-        $vals = ':' . implode(',:', array_keys($answers));
-        $sql = "replace into $table ($keys) values ($vals)";
+        $values = ':' . implode(',:', array_keys($answers));
         
-        $this->executeStatement($sql, $answers);
-        return $params; // Return full params like original db.php
+        // Base INSERT
+        $sql = "INSERT INTO {$table} ({$keys}) VALUES ({$values})";
+
+        // Optional WHERE clause
+        if ($criteria) {
+            $sql .= " WHERE {$criteria}";
+        }
+
+        // ON DUPLICATE KEY UPDATE
+        $updates = array_map(fn($k) => "{$k} = :{$k}", array_keys($answers));
+        $sql .= " ON DUPLICATE KEY UPDATE " . implode(',', $updates);
+
+        $result = $this->executeStatement($sql, $answers);
+        if( $result == NULL ) {
+            $answers = [];
+        }
+        return $answers; // empty array on failure
+    }
+
+    // For legacy compatibiltiy
+	public function insertOneDBRecord($potential, $params, $table, $prefix='id', $idName='id') {
+        // updateOneDBRecord does an upsert
+        return $this->updateOneDBRecord( $potential, $params, $table, $prefix, $idName );
 	}
 
 	// Common getters
 	public function getBy($key, $value, $multiple=true) {
-		$sql="select * from {$this->table} where $key = :value"; $rows=$this->query($sql,[':value'=>$value]);
-		if(!$multiple) return ($rows && isset($rows[0]))?$rows[0]:[]; return $rows;
+		$sql = "select * from {$this->table} where $key = :value";
+        $rows = $this->query( $sql, [':value'=>$value] );
+		if(!$multiple) {
+            return ($rows && isset($rows[0])) ? $rows[0] : [];
+        }
+        return $rows;
 	}
-	public function getById($id){ return $this->getBy($this->idName,$id,false); }
-	public function getByEmail($email,$fromdate=''){ return $this->getBy('email',$email,false); }
+    
+	public function getById($id){
+        return $this->getBy($this->idName, $id, false);
+    }
+    
+	public function getByEmail($email, $fromdate='') {
+        return $this->getBy('email',$email,false);
+    }
+    
 	/**
 	 * Flexible getAll supporting optional params:
 	 * - ['from' => 'YYYY-MM-DD', 'to' => 'YYYY-MM-DD', 'dateField' => 'date', 'orderBy' => '...']
 	 */
-	public function getAll($params = null){
+	public function getAll($params = []){
 		if (is_array($params)) {
 			$from = $params['from'] ?? '';
 			$to = $params['to'] ?? '';
@@ -283,39 +383,22 @@ abstract class DBBase {
 		}
 		return $this->query("select * from {$this->table}");
 	}
-	public function delete($id){ return $this->deleteBy($this->idName,$id); }
-	public function deleteBy($key,$value){ $sql="delete from {$this->table} where $key = :v"; return $this->execute($sql,[':v'=>$value]); }
+    
+	public function delete($id) {
+        return $this->deleteBy($this->idName,$id);
+    }
+    
+	public function deleteBy($key,$value) {
+        $sql="delete from {$this->table} where $key = :v";
+        return $this->execute($sql,[':v'=>$value]);
+    }
 
-	// Convenient update method: create if no ID provided or no existing record found, otherwise update
+	// upsert using class-defined table, field names and id prefix
 	public function update($params) {
 		$this->debuglog($params);
-		$potential = $this->getFieldNames();
-		$record = [];
-		$idName = $this->getIDName();
-		$id = $params[$idName] ?? null;
-		// If no id provided, but we have an email field, try to resolve existing record by email
-		if (!$id && isset($params['email']) && $params['email']) {
-			try {
-				$existing = $this->getByEmail($params['email']);
-				if (is_array($existing) && isset($existing[$idName]) && $existing[$idName]) {
-					$id = $existing[$idName];
-					$params[$idName] = $id; // promote to params for update path
-				}
-			} catch (Throwable $e) {
-				// ignore – not all tables support getByEmail
-			}
-		}
-		if ($id) {
-			$record = $this->getById($id);
-		}
-		if (is_array($record) && isset($record[$idName]) && $record[$idName]) {
-			$results = $this->updateOneDBRecord($potential, $params, $this->table, $this->prefix, $idName);
-		} else {
-			// Use expandName if available globally, otherwise just use params as-is
-			$processedParams = function_exists('expandName') ? expandName($params) : $params;
-			$results = $this->insertOneDBRecord($potential, $processedParams, $this->table, $this->prefix, $idName);
-		}
-		return $results;
+		// Use expandName if available globally, otherwise just use params as-is
+		$processedParams = function_exists('expandName') ? expandName($params) : $params;
+		return $this->updateOneDBRecord($this->getFieldNames(), $processedParams, $this->table, $this->prefix, $this->getIDName());
 	}
 
     // Small helper used by scripts/tests; keeps legacy behavior
