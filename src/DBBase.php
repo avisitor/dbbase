@@ -202,6 +202,10 @@ abstract class DBBase {
 	}
 
 	public function executeStatement($sql, $values=null) {
+		$this->debuglog($sql, "sql");
+		if( $values ) {
+			$this->debuglog($values, "values");
+		}
 		$this->ensureConn();
 		try {
 			$stmt = $this->conn->prepare($sql);
@@ -311,16 +315,23 @@ abstract class DBBase {
 	// CRUD helpers
     // upsert - inserts unless there is an existing primary key or unique value, in which case it updates
 	public function updateOneDBRecord($potential, $params, $table, $prefix='', $idName='id', $criteria='') {
-        // Filter $params down to only the keys in $potential
-        $answers = array_filter(
-            $params,
-            fn($k) => in_array($k, $potential, true),
-            ARRAY_FILTER_USE_KEY
-        );
-        if( !isset($params[$idname]) || !$params[$idname] ) {
-            // Generate an ID if necessary
-            $answers[$idname] = $params[$idname] = uniqidReal( $prefix );
-        }
+		// Filter $params down to only the keys in $potential
+		$answers = array_filter(
+			$params,
+			fn($k) => in_array($k, $potential, true),
+			ARRAY_FILTER_USE_KEY
+		);
+		if( !isset($params[$idName]) || !$params[$idName] ) {
+			// Generate an ID if necessary
+			$answers[$idName] = $params[$idName] = $this->uniqidReal( $prefix );
+		}
+		if ($criteria) {
+			$updates = array_map(fn($k) => "{$k} = :{$k}", array_keys($answers));
+			$sql = "UPDATE {$table} SET " . implode(',', $updates) . " WHERE {$criteria}";
+			$result = $this->executeStatement($sql, $answers);
+			return $result === null ? [] : $answers;
+		}
+
         $keys = implode(',', array_keys($answers));
         $values = ':' . implode(',:', array_keys($answers));
         
