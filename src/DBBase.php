@@ -238,7 +238,7 @@ abstract class DBBase {
 	}
 
 	// --- Convenience helpers preserved from legacy DBBase ---
-	protected function getOne($sql, $values=null) {
+	public function getOne($sql, $values=null) {
 		$rows = $this->query($sql, $values);
 		return ($rows && isset($rows[0])) ? $rows[0] : [];
 	}
@@ -361,6 +361,32 @@ abstract class DBBase {
         // updateOneDBRecord does an upsert
         return $this->updateOneDBRecord( $potential, $params, $table, $prefix, $idName );
 	}
+
+	public function replace($potential, $params, $table, $prefix='', $idName='id', $criteria='') {
+		// Filter $params down to only the keys in $potential
+		$answers = array_filter(
+			$params,
+			fn($k) => in_array($k, $potential, true),
+			ARRAY_FILTER_USE_KEY
+		);
+		if( !isset($params[$idName]) || !$params[$idName] ) {
+			// Generate an ID if necessary
+			$answers[$idName] = $params[$idName] = $this->uniqidReal( $prefix );
+		}
+		error_log("DBBase::replace: answers: " . var_export($answers, true) . ", params: " . var_export($params, true) );
+
+        $keys = implode(',', array_keys($answers));
+        $values = ':' . implode(',:', array_keys($answers));
+        
+        // Base INSERT
+        $sql = "REPLACE INTO {$table} ({$keys}) VALUES ({$values})";
+
+        $result = $this->executeStatement($sql, $answers);
+        if( $result == NULL ) {
+            $answers = [];
+        }
+        return $answers; // empty array on failure
+    }
 
 	// Common getters
 	public function getBy($key, $value, $multiple=true) {
