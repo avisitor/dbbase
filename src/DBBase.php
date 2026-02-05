@@ -332,7 +332,13 @@ abstract class DBBase {
 			$updates = array_map(fn($k) => "{$k} = :{$k}", array_keys($answers));
 			$sql = "UPDATE {$table} SET " . implode(',', $updates) . " WHERE {$criteria}";
 			$result = $this->executeStatement($sql, $answers);
-			return $result === null ? [] : $answers;
+			if ($result === null) {
+				return [];
+			}
+			if (!empty($answers) && isset($params[$idName]) && $params[$idName] && !isset($answers[$idName])) {
+				$answers[$idName] = $params[$idName];
+			}
+			return $answers;
 		}
 
         $keys = implode(',', array_keys($answers));
@@ -354,6 +360,9 @@ abstract class DBBase {
         if( $result == NULL ) {
             $answers = [];
         }
+		if (!empty($answers) && isset($params[$idName]) && $params[$idName] && !isset($answers[$idName])) {
+			$answers[$idName] = $params[$idName];
+		}
         return $answers; // empty array on failure
     }
 
