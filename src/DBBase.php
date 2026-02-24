@@ -23,6 +23,8 @@ abstract class DBBase {
 	/** @var array|null */
 	protected static $defaultConfig = null;
 
+	protected static $cachedColumns = null;
+	
 	public function __construct($pdo = null, $logger = null) {
 		$this->conn = $pdo ?: self::$defaultConn;
 		$this->logger = $logger ?: self::$defaultLogger;
@@ -124,6 +126,33 @@ abstract class DBBase {
         return [];
     }
     
+	public function getTableColumns(): ?array {
+		if (self::$cachedColumns !== null) {
+			return self::$cachedColumns;
+		}
+
+		try {
+			$rows = $this->query("DESCRIBE {$this->table}");
+			if (!$rows) {
+				self::$cachedColumns = null;
+				return null;
+			}
+			$columns = [];
+			foreach ($rows as $row) {
+				if (isset($row['field'])) {
+					$columns[] = strtolower($row['field']);
+				} elseif (isset($row['Field'])) {
+					$columns[] = strtolower($row['Field']);
+				}
+			}
+			self::$cachedColumns = $columns ?: null;
+			return self::$cachedColumns;
+		} catch (Throwable $e) {
+			self::$cachedColumns = null;
+			return null;
+		}
+	}
+
 	public function getClassName() {
 		if(!$this->className) {
             $this->className = preg_replace('/^DB/','', (new ReflectionClass($this))->getShortName());
