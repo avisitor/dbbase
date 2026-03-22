@@ -27,7 +27,7 @@ abstract class DBBase {
 	
 	public function __construct($pdo = null, $logger = null) {
 		$this->conn = $pdo ?: self::$defaultConn;
-		$this->logger = $logger ?: self::$defaultLogger;
+		$this->logger = $logger ?? self::$defaultLogger;
 	}
 	
 	public function setConnection(PDO $pdo) {
@@ -44,6 +44,7 @@ abstract class DBBase {
     }
 	public static function setDefaultLogger($logger) {
         self::$defaultLogger = $logger;
+        //echo "Set defaultLogger " . var_export( $logger, true ) . "\n";
     }
 	
 	/**
@@ -169,54 +170,107 @@ abstract class DBBase {
     }
     
     protected function get_caller_info() {
-        $c = '';
-        $file = '';
-        $func = '';
-        $class = '';
-        $trace = debug_backtrace();
-        if (isset($trace[2])) {
-            $file = $trace[1]['file'];
-            $func = $trace[2]['function'];
-            if ((substr($func, 0, 7) == 'include') || (substr($func, 0, 7) == 'require')) {
-                $func = '';
+		$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 100);
+		$internalLogMethods = ['get_caller_info', 'debuglog', 'externallog', 'log', 'defaultlog'];
+		$fallbackLocation = '';
+		$buildCallable = static function(array $frame): string {
+			$method = (string)($frame['function'] ?? '');
+			$class = (string)($frame['class'] ?? '');
+			if ($class !== '' && $method !== '') {
+				return $class . '->' . $method . '()';
+			}
+			if ($method !== '' && strpos($method, 'include') !== 0 && strpos($method, 'require') !== 0) {
+				return $method . '()';
+			}
+			return '';
+		};
+
+		foreach ($trace as $index => $frame) {
+            $function = (string)($frame['function'] ?? '');
+			$class = (string)($frame['class'] ?? '');
+			$isInternalLogMethod = in_array($function, $internalLogMethods, true);
+
+			$file = (string)($frame['file'] ?? '');
+			$shortFile = $file !== '' ? basename($file) : '';
+			$line = isset($frame['line']) ? (int)$frame['line'] : 0;
+			if ($line <= 0 && isset($trace[$index + 1]['line'])) {
+				$line = (int)$trace[$index + 1]['line'];
+			}
+			if ($file !== '' && $line > 0 && $fallbackLocation === '') {
+				$location = basename($file) . ':' . $line;
+				$fallbackLocation = $location;
+			}
+
+			if ($isInternalLogMethod) {
+				// Wrapper frame file/line points to the real call site in user code.
+				if ($shortFile !== '' && $shortFile !== 'DBBase.php' && $line > 0) {
+					$callable = '';
+					if (isset($trace[$index + 1]) && is_array($trace[$index + 1])) {
+						$callable = $buildCallable($trace[$index + 1]);
+					}
+					$location = $shortFile . ':' . $line;
+					return $callable !== '' ? ($location . ' ' . $callable) : $location;
+				}
+				continue;
+			}
+
+            if ($file === '') {
+                continue;
             }
-        } else if (isset($trace[1])) {
-            $file = $trace[1]['file'];
-            $func = '';
+
+			$callable = $buildCallable($frame);
+
+			if ($line <= 0) {
+				$line = 1;
+			}
+			$location = $shortFile . ':' . $line;
+            return $callable !== '' ? ($location . ' ' . $callable) : $location;
         }
-        if (isset($trace[3]['class'])) {
-            $class = $trace[3]['class'];
-            $func = $trace[3]['function'];
-            $file = $trace[2]['file'];
-        } else if (isset($trace[2]['class'])) {
-            $class = $trace[2]['class'];
-            $func = $trace[2]['function'];
-            $file = $trace[1]['file'];
-        }
-        if ($file != '') $file = basename($file);
-        $c = $file . ": ";
-        $c .= ($class != '') ? ":" . $class . "->" : "";
-        $c .= ($func != '') ? $func . "(): " : "";
-        return($c);
+
+		if ($fallbackLocation !== '') {
+			return $fallbackLocation;
+		}
+
+		$scriptFile = (string)($_SERVER['SCRIPT_FILENAME'] ?? '');
+		if ($scriptFile !== '') {
+			return basename($scriptFile) . ':1';
+		}
+
+		return 'unknown';
     }
 
-    public function debuglog( $msg, $prefix="" ) {
-        if( is_object( $msg ) || is_array( $msg ) ) {
-            $msg = var_export( $msg, true );
-        }
+    protected function defaultlog( $msg, $prefix ) {
         if( $prefix ) {
             $msg = "$prefix: $msg";
         }
-        error_log( $_SERVER['SCRIPT_NAME'] . ": " . $this->get_caller_info() . ": $msg" );
+        $fullMsg = "$serverprefix $callerInfo" . ": $msg";
+        error_log( $fullMsg );
     }
     
-	public function log($message, $title='', $level=0) {
-		if ($this->logger) {
-            $message = is_string($message) ? $message : var_export($message, true);
-            ($this->logger)($message, $title);
-        } else {
-			$this->debuglog($message, $title);
+    protected function externallog( $logger, $level, $prefix, $msg ) {
+        $msg = is_string($msg) ? $msg : var_export($msg, true);
+        $serverPrefix = $_SERVER['SCRIPT_NAME'] ?? '';
+		$callerInfo = $this->get_caller_info();
+		$level = $level ?? LevelDebug;
+        try {
+            $context = ['file' => $serverPrefix, 'title' => $prefix, 'caller' => $callerInfo];
+            $logger->log( $level, $msg, $context );
+        } catch (Throwable $e) {
+            error_log("Failed to log via logger: " . $e->getMessage());
         }
+    }
+    
+	public function debuglog( $msg, $prefix="", $level=LevelDebug ) {
+		$logger = $this->logger ?? self::$defaultLogger;
+        if ($logger && is_object($logger)) {
+            $this->externallog( $logger, $level, $prefix, $msg );
+        } else {
+            $this->defaultlog( $msg, $prefix );
+        }
+    }
+    
+	public function log($level, $msg, $title='') {
+        $this->debuglog( $msg, $title, $level );
 	}
 
 	protected function ensureConn() {
