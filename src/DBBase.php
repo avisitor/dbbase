@@ -243,17 +243,43 @@ abstract class DBBase {
         if( $prefix ) {
             $msg = "$prefix: $msg";
         }
+        $serverPrefix = $_SERVER['SCRIPT_NAME'] ?? '';
+		$callerInfo = $this->get_caller_info();
         $fullMsg = "$serverprefix $callerInfo" . ": $msg";
         error_log( $fullMsg );
     }
     
     protected function externallog( $logger, $level, $prefix, $msg ) {
         $msg = is_string($msg) ? $msg : var_export($msg, true);
+        if (!is_string($msg)) {
+            $payload = $msg;
+            if (is_scalar($msg) || $msg === null) {
+                $msg = (string)$msg;
+            } else {
+                $msg = '';
+            }
+        }
+        if( $prefix ) {
+            $msg = $prefix . ($msg !== '' ? ": $msg" : '');
+        }
         $serverPrefix = $_SERVER['SCRIPT_NAME'] ?? '';
 		$callerInfo = $this->get_caller_info();
 		$level = $level ?? LevelDebug;
         try {
-            $context = ['file' => $serverPrefix, 'title' => $prefix, 'caller' => $callerInfo];
+            $context = [
+                'file' => $serverPrefix,
+                'title' => $prefix,
+                'caller' => $callerInfo,
+                'email' => $_SESSION["email"] ?? $_SESSION["username"] ?? '',
+                'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? '',
+                'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
+            ];
+            if ($payload !== null) {
+                $context['payload'] = $payload;
+            }
+            if( count($_SERVER['argv'] ?? []) > 0 ) {
+                $context['argv'] = $_SERVER['argv'];
+            }
             $logger->log( $level, $msg, $context );
         } catch (Throwable $e) {
             error_log("Failed to log via logger: " . $e->getMessage());
