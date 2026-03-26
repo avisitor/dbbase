@@ -245,7 +245,7 @@ abstract class DBBase {
         }
         $serverPrefix = $_SERVER['SCRIPT_NAME'] ?? '';
 		$callerInfo = $this->get_caller_info();
-        $fullMsg = "$serverprefix $callerInfo" . ": $msg";
+        $fullMsg = "$serverPrefix $callerInfo" . ": $msg";
         error_log( $fullMsg );
     }
     
