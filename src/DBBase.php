@@ -240,6 +240,7 @@ abstract class DBBase {
     }
 
     protected function defaultlog( $msg, $prefix ) {
+        $msg = is_string($msg) ? $msg : var_export($msg, true);
         if( $prefix ) {
             $msg = "$prefix: $msg";
         }
