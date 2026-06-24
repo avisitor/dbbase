@@ -8,6 +8,15 @@ use Exception;
 use RuntimeException;
 use Throwable;
 
+defined('LevelDebug')      or define('LevelDebug',      100);
+defined('LevelInfo')       or define('LevelInfo',       200);
+defined('LevelNotice')     or define('LevelNotice',     250);
+defined('LevelWarning')    or define('LevelWarning',    300);
+defined('LevelError')      or define('LevelError',      400);
+defined('LevelCritical')   or define('LevelCritical',   500);
+defined('LevelAlert')      or define('LevelAlert',      550);
+defined('LevelEmergency')  or define('LevelEmergency',  600);
+
 abstract class DBBase {
 	protected $table = '';
 	protected $prefix = '';
