@@ -260,6 +260,7 @@ abstract class DBBase {
     }
     
     protected function externallog( $logger, $level, $prefix, $msg ) {
+        $payload = null;
         $msg = is_string($msg) ? $msg : var_export($msg, true);
         if (!is_string($msg)) {
             $payload = $msg;
