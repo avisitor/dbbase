@@ -139,6 +139,11 @@ abstract class DBBase {
 			$options[PDO::ATTR_CASE] = PDO::CASE_LOWER;
 			$options[PDO::MYSQL_ATTR_INIT_COMMAND] = "SET NAMES utf8mb4";
 		}
+		// Callers may override any default PDO option (e.g. keep legacy
+		// EMULATE_PREPARES behavior) via the 'options' config key.
+		if (!empty($config['options']) && is_array($config['options'])) {
+			$options = array_replace($options, $config['options']);
+		}
 		
 		try {
 			return new PDO($dsn, $config['username'], $config['password'], $options);
