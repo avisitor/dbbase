@@ -64,7 +64,7 @@ abstract class DBBase {
 		self::$defaultConfig = $config;
 	}
 	
-	public function uniqidReal($prefix = '', $len = 13) {
+	public static function uniqidReal($prefix = '', $len = 13) {
 		if (function_exists('random_bytes')) {
 			$bytes = random_bytes(ceil($len / 2));
 		} elseif (function_exists('openssl_random_pseudo_bytes')) {
