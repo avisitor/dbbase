@@ -69,9 +69,9 @@ abstract class DBBase {
 	
 	public static function uniqidReal($prefix = '', $len = 13) {
 		if (function_exists('random_bytes')) {
-			$bytes = random_bytes(ceil($len / 2));
+			$bytes = random_bytes((int)ceil($len / 2));
 		} elseif (function_exists('openssl_random_pseudo_bytes')) {
-			$bytes = openssl_random_pseudo_bytes(ceil($len / 2));
+			$bytes = openssl_random_pseudo_bytes((int)ceil($len / 2));
 		} else {
 			throw new Exception('no cryptographically secure random function available');
 		}
