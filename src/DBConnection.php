@@ -1,4 +1,7 @@
 <?php
+
+declare(strict_types=1);
+
 namespace Common\DB;
 
 use PDO;use PDOException;use RuntimeException;
