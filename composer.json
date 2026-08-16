@@ -1,7 +1,7 @@
 {
     "name": "avisitor/dbbase",
     "description": "Database base class utilities",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "type": "library",
     "autoload": {
         "psr-4": {

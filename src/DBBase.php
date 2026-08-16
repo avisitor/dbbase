@@ -77,6 +77,15 @@ abstract class DBBase {
 
 	/**
 	 * Create a PDO connection from configuration
+	 *
+	 * Supported config keys:
+	 *   - driver: 'mysql' (default) or 'pgsql' (alias: 'type')
+	 *   - dsn: full DSN override; when present, host/port/dbname/socket are
+	 *     taken from the DSN itself and only username/password are required
+	 *   - host, dbname, username, password, port (required unless dsn given)
+	 *   - socket: mysql unix_socket DSN (optional)
+	 *   - charset: mysql charset (default utf8mb4)
+	 *
 	 * @param array|null $config Configuration override, uses default if null
 	 * @return PDO
 	 * @throws Exception
@@ -87,32 +96,49 @@ abstract class DBBase {
 			throw new Exception('No database configuration provided');
 		}
 
-        $required = [ 'host', 'dbname', 'username', 'password', 'port' ];
-        foreach( $required as $key ) {
-            if( !isset( $config[$key] ) || !$config[$key] ) {
-			    throw new Exception("DB config key $key is required by DBBase, normally passed in the environment");
-            }
+		$driver = strtolower((string)($config['driver'] ?? $config['type'] ?? 'mysql'));
+		if (!in_array($driver, ['mysql', 'pgsql'], true)) {
+			throw new Exception("Unsupported database driver: $driver");
 		}
-        
-		$socket = $config['socket'] ?? null;
-		$charset = $config['charset'] ?? 'utf8mb4';
-		
-		$dsn = "mysql:dbname={$config['dbname']};charset={$charset}";
-		
-		if ($socket) {
-			$dsn = "mysql:unix_socket={$socket};dbname={$config['dbname']};charset={$charset}";
+
+		$dsn = $config['dsn'] ?? null;
+		if ($dsn === null) {
+			$required = [ 'host', 'dbname', 'username', 'password', 'port' ];
+			foreach( $required as $key ) {
+				if( !isset( $config[$key] ) || !$config[$key] ) {
+					throw new Exception("DB config key $key is required by DBBase, normally passed in the environment");
+				}
+			}
+
+			$socket = $config['socket'] ?? null;
+			$charset = $config['charset'] ?? 'utf8mb4';
+
+			if ($driver === 'pgsql') {
+				$dsn = "pgsql:host={$config['host']};port={$config['port']};dbname={$config['dbname']}";
+			} elseif ($socket) {
+				$dsn = "mysql:unix_socket={$socket};dbname={$config['dbname']};charset={$charset}";
+			} else {
+				$dsn = "mysql:host={$config['host']};port={$config['port']};dbname={$config['dbname']};charset={$charset}";
+			}
 		} else {
-			$dsn = "mysql:host={$config['host']};port={$config['port']};dbname={$config['dbname']};charset={$charset}";
+			if (!isset($config['username']) || !$config['username']) {
+				throw new Exception("DB config key username is required by DBBase, normally passed in the environment");
+			}
+			if (!isset($config['password']) || $config['password'] === '') {
+				throw new Exception("DB config key password is required by DBBase, normally passed in the environment");
+			}
 		}
 		//echo "dsn: $dsn, {$config['username']}, {$config['password']}\n";
-		
+
 		$options = [
 			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 			PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
 			PDO::ATTR_EMULATE_PREPARES => false,
-			PDO::ATTR_CASE => PDO::CASE_LOWER,
-            PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4",
 		];
+		if ($driver === 'mysql') {
+			$options[PDO::ATTR_CASE] = PDO::CASE_LOWER;
+			$options[PDO::MYSQL_ATTR_INIT_COMMAND] = "SET NAMES utf8mb4";
+		}
 		
 		try {
 			return new PDO($dsn, $config['username'], $config['password'], $options);
