@@ -332,11 +332,16 @@ abstract class DBBase {
     }
     
 	public function debuglog( $msg, $prefix="", $level=LevelDebug ) {
-		$logger = $this->logger ?? self::$defaultLogger;
-        if ($logger && is_object($logger)) {
-            $this->externallog( $logger, $level, $prefix, $msg );
+        $logger = $this->logger ?? self::$defaultLogger;
+        if ($logger instanceof \Closure) {
+            $msg = "Closure at " . __FILE__ . ": " . $msg;
+            $logger($level, $prefix !== '' ? "$prefix: $msg" : $msg, $context ?? []);
+            return;
+        }
+        if ($logger && is_object($logger) && method_exists($logger, 'log')) {
+            $this->externallog($logger, $level, $prefix, $msg);
         } else {
-            $this->defaultlog( $msg, $prefix );
+            $this->defaultlog($msg, $prefix);
         }
     }
     
