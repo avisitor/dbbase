@@ -334,6 +334,7 @@ abstract class DBBase {
 	public function debuglog( $msg, $prefix="", $level=LevelDebug ) {
         $logger = $this->logger ?? self::$defaultLogger;
         if ($logger instanceof \Closure) {
+            $msg = is_string($msg) ? $msg : var_export($msg, true);
             $msg = "Closure at " . __FILE__ . ": " . $msg;
             $logger($level, $prefix !== '' ? "$prefix: $msg" : $msg, $context ?? []);
             return;
