@@ -180,6 +180,38 @@ class DBBaseTest extends TestCase
         $this->assertSame(1, $failDb->execute('update t set x = 1'));
     }
 
+    public function testExecuteStatementReturnsNullOnPdoErrorByDefault(): void
+    {
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willThrowException(new PDOException('boom'));
+        $db = $this->makeSubject($pdo);
+
+        $this->assertNull($db->executeStatementPublic('select * from broken'));
+    }
+
+    public function testExecuteStatementThrowsWhenThrowOnErrorEnabled(): void
+    {
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willThrowException(new PDOException('boom'));
+        $db = $this->makeSubject($pdo);
+        $db->throwOnError = true;
+
+        $this->expectException(PDOException::class);
+        $this->expectExceptionMessage('boom');
+        $db->executeStatementPublic('select * from broken');
+    }
+
+    public function testQueryThrowsWhenThrowOnErrorEnabled(): void
+    {
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willThrowException(new PDOException('boom'));
+        $db = $this->makeSubject($pdo);
+        $db->throwOnError = true;
+
+        $this->expectException(PDOException::class);
+        $db->query('select * from broken');
+    }
+
     public function testExecuteStatementThrowsWithoutConnection(): void
     {
         $db = $this->makeSubject();

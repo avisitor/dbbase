@@ -35,6 +35,16 @@ abstract class DBBase {
 	/** @var array|null */
 	protected static $defaultConfig = null;
 
+	/**
+	 * When true, executeStatement() rethrows PDOException instead of logging
+	 * it and returning null. Opt-in strict mode: the legacy silent behavior
+	 * (log + falsy return) remains the default so existing consumers that
+	 * degrade gracefully on DB errors are unaffected. Derived helpers
+	 * (query(), execute(), and subclasses' executePrepared()/getDBRows())
+	 * inherit the mode.
+	 */
+	public bool $throwOnError = false;
+
 	protected static $cachedColumns = null;
 	
 	public function __construct($pdo = null, $logger = null) {
@@ -379,6 +389,9 @@ abstract class DBBase {
             }
 			return $stmt;
 		} catch (PDOException $e) {
+			if ($this->throwOnError) {
+				throw $e;
+			}
 			$this->log($e->getMessage(), 'error');
 			return null;
 		}
