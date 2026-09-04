@@ -358,6 +358,119 @@ class DBBaseTest extends TestCase
         }
         $this->assertCount(500, $seen);
     }
+
+    // --- opt-in id-targeted update (updateByIdName) -----------------------
+    //
+    // The default upsert can only locate a row via INSERT..ON DUPLICATE KEY
+    // UPDATE, which needs a declared unique key among the supplied columns.
+    // A partial update of a table whose unique key is not in $params (or whose
+    // id column carries no unique index) therefore never matches anything.
+
+    public function testUpdateByIdNameDisabledStillUsesUpsert(): void
+    {
+        $captured = [];
+        $subject = $this->makeSubject($this->mockPdo([], $captured));
+
+        $subject->update(['id' => 'tt-existing', 'email' => 'new@example.com']);
+
+        $this->assertCount(1, $captured, 'Default path should issue exactly one statement');
+        $this->assertStringContainsString('INSERT INTO', $captured[0]);
+        $this->assertStringContainsString('ON DUPLICATE KEY UPDATE', $captured[0]);
+    }
+
+    public function testUpdateByIdNameTargetsExistingRowById(): void
+    {
+        $captured = [];
+        // First statement is the existence probe and returns exactly one row.
+        $pdo = $this->mockPdo([0 => [['id' => 'tt-existing']]], $captured);
+        $subject = $this->makeSubject($pdo);
+        $subject->setUpdateByIdName(true);
+
+        $result = $subject->update(['id' => 'tt-existing', 'email' => 'new@example.com']);
+
+        $this->assertCount(2, $captured, 'Expected a probe followed by an update');
+        $this->assertStringContainsString('limit 2', $captured[0]);
+        $this->assertStringContainsString('UPDATE test_table SET', $captured[1]);
+        $this->assertStringContainsString('email = :email', $captured[1]);
+        $this->assertStringContainsString('WHERE id = :__dbbase_row_id', $captured[1]);
+        $this->assertStringNotContainsString('INSERT INTO', $captured[1]);
+        $this->assertSame('new@example.com', $result['email']);
+        $this->assertSame('tt-existing', $result['id']);
+    }
+
+    public function testUpdateByIdNameNeverRewritesTheIdColumn(): void
+    {
+        $captured = [];
+        $pdo = $this->mockPdo([0 => [['id' => 'tt-existing']]], $captured);
+        $subject = $this->makeSubject($pdo);
+        $subject->setUpdateByIdName(true);
+
+        $subject->update(['id' => 'tt-existing', 'name' => 'Renamed']);
+
+        // 'id' is in getFieldNames(), so it survives filtering - but it must
+        // only appear in the WHERE clause, never in SET.
+        $this->assertStringNotContainsString('SET id =', $captured[1]);
+        $this->assertStringNotContainsString(',id =', $captured[1]);
+        $this->assertStringContainsString('name = :name', $captured[1]);
+    }
+
+    public function testUpdateByIdNameFallsBackToInsertWhenRowMissing(): void
+    {
+        $captured = [];
+        // Probe returns no rows.
+        $pdo = $this->mockPdo([0 => []], $captured);
+        $subject = $this->makeSubject($pdo);
+        $subject->setUpdateByIdName(true);
+
+        $subject->update(['id' => 'tt-brand-new', 'email' => 'new@example.com']);
+
+        $this->assertCount(2, $captured, 'Expected a probe followed by a create');
+        $this->assertStringContainsString('INSERT INTO', $captured[1]);
+        // The caller-supplied id must actually be stored, not just reported back.
+        $this->assertStringContainsString('id', $captured[1]);
+    }
+
+    public function testUpdateByIdNameRefusesAmbiguousDuplicateIds(): void
+    {
+        $captured = [];
+        // Probe returns two rows sharing the id.
+        $pdo = $this->mockPdo([0 => [['id' => 'dup'], ['id' => 'dup']]], $captured);
+        $subject = $this->makeSubject($pdo);
+        $subject->setUpdateByIdName(true);
+
+        $result = $subject->update(['id' => 'dup', 'email' => 'new@example.com']);
+
+        $this->assertSame([], $result, 'Ambiguous id must report failure');
+        $this->assertCount(1, $captured, 'Must not write after an ambiguous probe');
+    }
+
+    public function testUpdateByIdNameReportsFailureWhenNoFieldsToUpdate(): void
+    {
+        $captured = [];
+        $pdo = $this->mockPdo([0 => [['id' => 'tt-existing']]], $captured);
+        $subject = $this->makeSubject($pdo);
+        $subject->setUpdateByIdName(true);
+
+        $result = $subject->update(['id' => 'tt-existing']);
+
+        $this->assertSame([], $result, 'An id-only request updates nothing');
+        $this->assertCount(1, $captured, 'Must not emit an UPDATE with an empty SET');
+    }
+
+    public function testUpdateByIdNameStillGeneratesIdWhenAbsent(): void
+    {
+        $captured = [];
+        $pdo = $this->mockPdo([], $captured);
+        $subject = $this->makeSubject($pdo);
+        $subject->setUpdateByIdName(true);
+
+        $result = $subject->update(['email' => 'new@example.com']);
+
+        // No explicit id supplied, so this is a create: no probe, straight to upsert.
+        $this->assertCount(1, $captured);
+        $this->assertStringContainsString('INSERT INTO', $captured[0]);
+        $this->assertNotEmpty($result['id']);
+    }
 }
 
 /**
@@ -398,5 +511,10 @@ class TestableDB extends DBBase
     public function insertOneDBRecordPublic($potential, $params, $table, $prefix = 'id', $idName = 'id')
     {
         return $this->insertOneDBRecord($potential, $params, $table, $prefix, $idName);
+    }
+
+    public function setUpdateByIdName(bool $enabled): void
+    {
+        $this->updateByIdName = $enabled;
     }
 }

@@ -24,6 +24,13 @@ abstract class DBBase {
 	protected $table = '';
 	protected $prefix = '';
 	protected $idName = 'id';
+	// Opt-in. When true, update() targets the row whose $idName matches an
+	// explicitly supplied id, instead of relying on INSERT..ON DUPLICATE KEY
+	// UPDATE to find it. Enable only on classes where $idName really does
+	// identify exactly one row: some tables reuse `id` for a related entity,
+	// or leave it blank/duplicated, and would be corrupted by an id-targeted
+	// write. Default false so existing behaviour is unchanged.
+	protected $updateByIdName = false;
 	protected $className = '';
 	protected $moduleName = '';
 	protected $conn = null; // ?PDO
@@ -489,6 +496,48 @@ abstract class DBBase {
     }
 
 	// CRUD helpers
+	/**
+	 * Update the single existing row identified by $idName = $id.
+	 *
+	 * Returns null when no such row exists, so the caller can fall back to
+	 * creating it. Returns [] on failure, including the ambiguous case where
+	 * more than one row shares the id - an id-targeted write is only safe when
+	 * it addresses exactly one row.
+	 */
+	protected function updateExistingRowById($answers, $id, $table, $idName) {
+		$idParam = ':__dbbase_row_id';
+		$probe = $this->query(
+			"select {$idName} from {$table} where {$idName} = {$idParam} limit 2",
+			[$idParam => $id]
+		);
+		if (count($probe) === 0) {
+			return null; // caller creates it instead
+		}
+		if (count($probe) > 1) {
+			$this->log("updateExistingRowById: {$table}.{$idName} '{$id}' matches " .
+					   count($probe) . " rows; refusing an ambiguous update", 'error');
+			return [];
+		}
+
+		// Never rewrite the identifier itself
+		$set = $answers;
+		unset($set[$idName]);
+		if (empty($set)) {
+			$this->log("updateExistingRowById: no updatable fields supplied for " .
+					   "{$table}.{$idName} '{$id}'", 'error');
+			return [];
+		}
+
+		$updates = array_map(fn($k) => "{$k} = :{$k}", array_keys($set));
+		$sql = "UPDATE {$table} SET " . implode(',', $updates) . " WHERE {$idName} = {$idParam}";
+		$result = $this->executeStatement($sql, array_merge($set, [$idParam => $id]));
+		if ($result === null) {
+			return [];
+		}
+		$set[$idName] = $id;
+		return $set;
+	}
+
     // upsert - inserts unless there is an existing primary key or unique value, in which case it updates
 	public function updateOneDBRecord($potential, $params, $table, $prefix='', $idName='id', $criteria='') {
 		// Filter $params down to only the keys in $potential
@@ -497,10 +546,27 @@ abstract class DBBase {
 			fn($k) => in_array($k, $potential, true),
 			ARRAY_FILTER_USE_KEY
 		);
-		if( !isset($params[$idName]) || !$params[$idName] ) {
+		$hadExplicitId = isset($params[$idName]) && $params[$idName];
+		if( !$hadExplicitId ) {
 			// Generate an ID if necessary
 			$answers[$idName] = $params[$idName] = $this->uniqidReal( $prefix );
 		}
+
+		// Opt-in: when $idName genuinely identifies a single row, target that row
+		// directly. The default INSERT..ON DUPLICATE KEY UPDATE path below can only
+		// match on a declared unique key, so a partial update (e.g. one edited cell)
+		// silently fails on tables whose unique key is not carried in $params.
+		// Off by default so existing consumers keep their current behaviour.
+		if ($this->updateByIdName && $hadExplicitId && !$criteria) {
+			$updated = $this->updateExistingRowById($answers, $params[$idName], $table, $idName);
+			if ($updated !== null) {
+				return $updated;
+			}
+			// Row does not exist yet - fall through and create it. Make sure the
+			// caller-supplied id is actually stored rather than only reported back.
+			$answers[$idName] = $params[$idName];
+		}
+
 		if ($criteria) {
 			$updates = array_map(fn($k) => "{$k} = :{$k}", array_keys($answers));
 			$sql = "UPDATE {$table} SET " . implode(',', $updates) . " WHERE {$criteria}";
