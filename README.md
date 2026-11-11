@@ -1,45 +1,62 @@
-# retree/dbbase
+# avisitor/dbbase
 
-Lightweight generic DB base class (PDO) extracted from retreehawaii.
+Lightweight PDO wrapper and CRUD base class extracted from retreehawaii.
+Namespace: `Common\DB`.
 
 Features:
-- Small typed wrapper over PDO for query/execute and simple CRUD helpers.
-- Optional global default connection so you don't have to pass a PDO to each instance.
-- `DBConnection` helper to build PDO from environment or a config file (with test DB override via `RETREE_TEST_DB`).
+- `DBBase` — small typed wrapper over PDO for query/execute plus simple CRUD helpers.
+- Optional default connection, so instances don't need a PDO passed in.
+- `DBConnection` — builds a PDO from environment variables or a PHP config file,
+  with a `RETREE_TEST_DB` override for tests.
 
-Install (local path):
-
-1) Add to your composer.json
+## Install
 
 ```json
 {
-  "require": { "retree/dbbase": "*@dev" },
-  "repositories": [ { "type": "path", "url": "../php-libs/dbbase", "options": { "symlink": true } } ]
+  "require": { "avisitor/dbbase": "^1.0" },
+  "repositories": [
+    { "type": "vcs", "url": "https://github.com/avisitor/dbbase.git" }
+  ]
 }
 ```
 
-2) composer update
-
-Usage:
+## Usage
 
 ```php
-use Retree\DB\DBConnection;
-use Retree\DB\DBBase;
+use Common\DB\DBConnection;
+use Common\DB\DBBase;
 
 $pdo = DBConnection::fromEnv();
 DBBase::setDefaultConnection($pdo);
 
 class DBThing extends DBBase {
-  public function __construct(...$args){ parent::__construct(...$args); $this->table='thing'; $this->prefix='thg'; }
+    public function __construct(...$args) {
+        parent::__construct(...$args);
+        $this->table = 'thing';
+        $this->prefix = 'thg';
+    }
 }
 
-$t = new DBThing();
-$rows = $t->getAll();
+$rows = (new DBThing())->getAll();
 ```
 
-Config resolution:
-- `DBConnection::fromEnv()` reads DB_HOST, DB_USER, DB_PASS, DB_NAME, DB_PORT, DB_SOCKET, and `RETREE_TEST_DB` to override the db name.
-- `DBConnection::fromConfigFile($path, $dbNameOverride)` reads a PHP array config `[db_host, db_user, db_pass, db_name]` and respects `RETREE_TEST_DB` or explicit override.
+## Configuration
 
-Notes:
-- This library intentionally contains only generic helpers. App-specific mapping or behaviors should live in your app’s own base class that composes or extends this.
+- `DBConnection::fromEnv(array $overrides = [])` reads `DB_HOST`, `DB_USER`,
+  `DB_PASS`, `DB_NAME`, `DB_PORT`, `DB_SOCKET`, and uses `RETREE_TEST_DB` to
+  override the database name.
+- `DBConnection::fromConfigFile(string $path, ?string $dbNameOverride = null)`
+  reads a PHP array returned by the file with keys `db_host`, `db_user`,
+  `db_pass`, `db_name` (and optional `db_port`, `db_socket`), and also honours
+  `RETREE_TEST_DB`.
+
+## Tests
+
+```bash
+./tests/run-tests.sh
+```
+
+## Scope
+
+This library intentionally contains only generic helpers. App-specific mapping
+belongs in a base class in the app that extends `DBBase`.
